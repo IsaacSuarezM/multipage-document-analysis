@@ -1,0 +1,7 @@
+{
+  "ApiGatewayRestApiEndpoint": "https://meufx6knig.execute-api.us-east-1.amazonaws.com/prod/",
+  "CognitoUserPoolId": "us-east-1_OPiIaljR4",
+  "CognitoUserPoolClientId": "sivv82nl7frd74jjstch2qupu",
+  "CognitoIdentityPoolId": "us-east-1:ea1a357e-8254-43d1-9bf7-aa8461a46472",
+  "RegionName": "us-east-1"
+}
