@@ -55,6 +55,7 @@ import {
   startDocumentAnalysis,
   Job,
   JobsResponse,
+  getDownloadURL,
   downloadFile,
   getJobResults,
   JobResults,
@@ -170,8 +171,8 @@ const List: React.FC = () => {
 
     if (!selectedFile.type.includes("pdf")) {
       toast({
-        title: t("toasts.invalidFileType.title"),
-        description: t("toasts.invalidFileType.description"),
+        title: "Invalid file type",
+        description: "Please select a PDF file",
         variant: "destructive",
       });
       return;
@@ -188,22 +189,18 @@ const List: React.FC = () => {
 
       // Step 2: Upload file to S3
       console.debug("[FileUpload] Uploading file to S3");
-      await uploadFile(selectedFile, presignedPostData);
+      const uploadResult = await uploadFile(selectedFile, presignedPostData);
       console.info("[FileUpload] File uploaded successfully");
 
-      // Step 3: Start document analysis
+      // Step 3: Start document analysis using the actual key from upload response
       console.debug("[FileUpload] Initiating document analysis");
-      await startDocumentAnalysis({
-        key: `pdf-files/${s3Key}`,
-        metadata: {
-          filename: fileName,
-        },
-      });
+      const actualKey = uploadResult.key || presignedPostData.key || `pdf-files/${s3Key}`;
+      await startDocumentAnalysis(actualKey, fileName);
 
-      console.info("[FileUpload] Document analysis started", { fileId });
+      console.info("[FileUpload] Document analysis started", { fileId, actualKey });
       toast({
-        title: t("toasts.uploadSuccess.title"),
-        description: t("toasts.uploadSuccess.description"),
+        title: "Upload successful",
+        description: "Document analysis has been started",
         variant: "default",
       });
       setIsDialogOpen(false);
@@ -214,8 +211,8 @@ const List: React.FC = () => {
         error: error instanceof Error ? error.message : "Unknown error",
       });
       toast({
-        title: t("toasts.uploadError.title"),
-        description: t("toasts.uploadError.description"),
+        title: "Upload failed",
+        description: "There was an error processing your document",
         variant: "destructive",
       });
     } finally {
@@ -239,8 +236,8 @@ const List: React.FC = () => {
 
     if (downloadingIds.size > 0) {
       toast({
-        title: t("toasts.downloadInProgress.title"),
-        description: t("toasts.downloadInProgress.description"),
+        title: "Download in progress",
+        description: "Please wait for the current download to complete",
         variant: "destructive",
       });
       return;
@@ -249,7 +246,15 @@ const List: React.FC = () => {
     setDownloadingIds((prev) => new Set(prev).add(documentKey));
 
     try {
-      const { presigned_url } = await downloadFile(type, documentKey);
+      // Parse document_key/report_key to extract folder and filename
+      // Expected format: "documents/filename.pdf" or "reports/filename.pdf"
+      const keyParts = documentKey.split('/');
+      const folder = keyParts[0];
+      const filename = keyParts.slice(1).join('/');
+      
+      console.log(`[Download] Type: ${type}, Folder: ${folder}, Filename: ${filename}`);
+      
+      const { presigned_url } = await getDownloadURL(type, folder, filename);
       const response = await fetch(presigned_url);
       if (!response.ok) throw new Error("Download failed");
       const blob = await response.blob();
@@ -274,8 +279,8 @@ const List: React.FC = () => {
     } catch (error) {
       console.error("Failed to download document", error);
       toast({
-        title: t("toasts.downloadError.title"),
-        description: t("toasts.downloadError.description"),
+        title: "Download failed",
+        description: "There was an error downloading the file",
         variant: "destructive",
       });
     } finally {
@@ -297,8 +302,8 @@ const List: React.FC = () => {
     } catch (error) {
       console.error("Failed to fetch job results", error);
       toast({
-        title: t("toasts.resultsError.title"),
-        description: t("toasts.resultsError.description"),
+        title: "Error loading results",
+        description: "There was an error loading the job results",
         variant: "destructive",
       });
     } finally {
@@ -325,7 +330,7 @@ const List: React.FC = () => {
             <Await resolve={loaderData.items}>
               {(resolvedItems: JobsResponse) => (
                 <Badge className="bg-primary text-white">
-                  {resolvedItems.items.length}
+                  {resolvedItems?.jobs?.length || 0}
                 </Badge>
               )}
             </Await>
@@ -436,7 +441,12 @@ const List: React.FC = () => {
         <Suspense fallback={<DataTableSkeleton />}>
           <Await resolve={loaderData.items}>
             {(resolvedItems: JobsResponse) => {
-              const filteredItems = filteredAndSortedItems(resolvedItems.items);
+              // Add safety check for jobs array
+              const jobsArray = resolvedItems?.jobs || [];
+              console.log('[List] Resolved items:', resolvedItems);
+              console.log('[List] Jobs array:', jobsArray);
+              
+              const filteredItems = filteredAndSortedItems(jobsArray);
               const totalPages = Math.ceil(filteredItems.length / pageSize);
               const paginatedItems = filteredItems.slice(
                 (page - 1) * pageSize,
@@ -714,10 +724,8 @@ const List: React.FC = () => {
                             ),
                           );
                           toast({
-                            title: t("resultsSheet.json.copySuccess.title"),
-                            description: t(
-                              "resultsSheet.json.copySuccess.description",
-                            ),
+                            title: "Copied to clipboard",
+                            description: "JSON report has been copied to clipboard",
                           });
                         }
                       }}
